@@ -3,6 +3,7 @@ import {
   Columns3Icon,
   FilterIcon,
   FilterXIcon,
+  RotateCcwIcon,
   SearchIcon,
   XIcon,
 } from "lucide-react";
@@ -16,6 +17,7 @@ import {
   GridMenu,
   GridMenuCheckboxItem,
   GridMenuContent,
+  GridMenuItem,
   GridMenuLabel,
   GridMenuSeparator,
   GridMenuTrigger,
@@ -37,6 +39,18 @@ export interface GridToolbarProps<TData extends RowData> {
   children?: ReactNode;
   className?: string;
   searchPlaceholder?: string;
+  /**
+   * Kolon duzenini varsayilana dondurur -- KALICILIK ACIKSA VERILMELI.
+   *
+   * Kalicilik olmadan kotu bir duzenden cikmanin yolu sayfayi yenilemekti.
+   * Duzen kaydedilir hale gelince o yol da kapaniyor: kullanici bir kolonu
+   * en dara cekip icerigini kaybettiginde ya da anlamadigi bir siralamaya
+   * sikistiginda geri donusu KALMIYOR.
+   *
+   * Verilmezse menu ogesi cizilmiyor; kaliciligi olmayan bir izgarada
+   * "sifirla" zaten anlamsiz olurdu.
+   */
+  onResetLayout?: () => void;
 }
 
 /**
@@ -60,6 +74,7 @@ export function GridToolbar<TData extends RowData>({
   children,
   className,
   searchPlaceholder = "Tümünde ara…",
+  onResetLayout,
 }: GridToolbarProps<TData>) {
   const globalFilter = table.state.globalFilter ?? "";
   const activeFilters = table.state.columnFilters.length;
@@ -173,6 +188,16 @@ export function GridToolbar<TData extends RowData>({
                   : column.id}
               </GridMenuCheckboxItem>
             ))}
+
+            {onResetLayout !== undefined && (
+              <>
+                <GridMenuSeparator />
+                <GridMenuItem onClick={onResetLayout}>
+                  <RotateCcwIcon className="size-3.5" />
+                  Düzeni sıfırla
+                </GridMenuItem>
+              </>
+            )}
           </GridMenuContent>
         </GridMenu>
       </div>

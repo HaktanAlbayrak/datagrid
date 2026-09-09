@@ -3,13 +3,14 @@
 DevExtreme sınıfında bir **DataGrid / TreeGrid** — TanStack Table v9 + shadcn/Tailwind
 üzerine kurulu, başlıksız (headless) çekirdek + hazır arayüz.
 
-> **Durum: Faz 1–2 + 4 + 5 + 6 + 7 tamam.** Çalışan: sıralama (çoklu), ağaç/hiyerarşi, satır
+> **Durum: Faz 1–8 tamam (yol haritasındaki her şey).** Çalışan: sıralama (çoklu), ağaç/hiyerarşi, satır
 > seçimi (üç durumlu, Shift-aralık), dondurulmuş kolonlar, kolon genişletme
 > (fare + klavye, sınırlı), **filtre satırı** (metin / sayı aralığı / tarih
 > aralığı / faceted çoklu seçim), **genel arama**, **kolon seçici**, **satır
 > işlemleri menüsü**, **gruplama + özetler**, **klavye navigasyonu
-> (`role="grid"`)**, sayfalama, yapışkan başlık, boş/yükleniyor durumları.
-> 68 test. Yol haritası aşağıda.
+> (`role="grid"`)**, **düzen kalıcılığı**, sayfalama, yapışkan başlık,
+> **gelişmiş filtre (VE/VEYA)**, **tembel ağaç**, boş/yükleniyor durumları.
+> 107 test. Yol haritası aşağıda.
 
 ---
 
@@ -22,12 +23,14 @@ karşılaştırdım:
 |---|---|---|
 | Sıralama (çoklu) | `rowSortingFeature` | ✅ Faz 1 |
 | Ağaç / TreeList | `rowExpandingFeature` + `getSubRows` | ✅ Faz 1 |
+| Tembel çocuk yükleme | — | ✅ Faz 3 |
 | Master-detail | aynı özellik + özel panel | ✅ altyapı hazır |
 | Dondurulmuş kolon (`fixed`) | `columnPinningFeature` | ✅ Faz 1 |
 | Kolon genişletme | `columnResizingFeature` | ✅ Faz 1 |
 | Kolon gizleme / sıralama | `columnVisibility` / `columnOrdering` | ✅ altyapı hazır |
 | Satır seçimi (üç durumlu) | `rowSelectionFeature` | ✅ Faz 1 |
 | Filtre satırı | `columnFilteringFeature` | ✅ Faz 2 |
+| Filtre kurucu (VE/VEYA, iç içe) | — | ✅ Faz 2b |
 | Başlık filtresi (var olan değerler) | `columnFacetingFeature` | ✅ Faz 2 |
 | Arama paneli | `globalFilteringFeature` | ✅ Faz 2 |
 | Kolon seçici | `columnVisibilityFeature` | ✅ Faz 2 |
@@ -37,6 +40,7 @@ karşılaştırdım:
 | Sanal kaydırma | ❌ yok | ✅ Faz 5 |
 | Düzenleme (hücre/toplu) | ❌ yok | ✅ Faz 6 |
 | Kolon genişliği sınırları | ❌ yok | ✅ Faz 2 |
+| Durum kalıcılığı (`state storing`) | ❌ yok | ✅ Faz 8 |
 | Klavye navigasyonu (hücreler arası) | ❌ yok | ✅ Faz 7 |
 | Excel (.xlsx) dışa/içe aktarma | ❌ yok | ✅ (bağımlılıksız) |
 | CSV dışa aktarma (kapsam seçmeli) | ❌ yok | ✅ |
@@ -364,6 +368,197 @@ duruyor.
 ("Bu sayfa" etiketi); yanlış bir sayıyı "Toplam" diye sunmaktansa kapsamını
 yazmak. Gerçek bir tüm-veri toplamı sunucunun işidir.
 
+### Tembel ağaç (Faz 3)
+
+```tsx
+const lazy = useLazyTree<Node>({
+  loadChildren: (parent) => fetchChildren(parent),   // kök için parent === null
+  getRowId: (row) => row.id,
+  hasChildren: (row) => row.childCount > 0,
+});
+
+const table = useGridTable({
+  data: lazy.rows,
+  columns,
+  getRowId: (row) => row.id,
+  getSubRows: lazy.getSubRows,
+  getRowCanExpand: lazy.getRowCanExpand,
+});
+
+useEffect(() => {
+  lazy.ensureLoaded(
+    table.getRowModel().rows.filter((r) => r.getIsExpanded()).map((r) => r.original),
+  );
+}, [table.state.expanded, lazy.ensureLoaded, table]);
+```
+
+**`hasChildren` sunucudan gelmek zorunda.** Tembel ağaçta çocuklar yüklenene
+kadar `subRows` boş; "boş ise ok çizme" deseydik hiçbir dal açılamazdı — ok
+yok, tıklama yok, yükleme yok. Kilitlenme. Sayımı zaten bilen taraf sunucu
+(`_count`).
+
+**"Açıldı" olayı değil, "açık olanların listesi".** Olay dinlemek daha doğal
+görünüyor ama kırılgan: bir satır programatik olarak da açılabiliyor (durum
+geri yükleme, `expandAll`, bir bağlantıdan gelme) ve o yolların hiçbiri
+tıklama olayı üretmiyor — dal açık görünür, boş kalırdı. `ensureLoaded`
+fikirsiz (idempotent), her genişletme değişikliğinde çağrılabiliyor.
+
+**Ölçülen iki hata, ikisi de sessizdi:**
+
+1. `getRowCanExpand` önce `(row: TData)` yazılmıştı. TanStack bu geri çağırımı
+   **`Row` nesnesiyle** çağırıyor; `Row`un da bir `.id` alanı olduğu için
+   kimlik okuması *çalışıyor görünüyordu*, ama `hasChildren(row)` içindeki
+   alan `undefined` dönüyordu. Sonuç: hiçbir düğümde ok çizilmiyordu ve
+   hiçbir hata da yoktu. Şimdi kanca satırı kendisi açıyor.
+2. Çocuklar geliyordu, `getSubRows` doğru diziyi döndürüyordu, **ekranda
+   hiçbir şey değişmiyordu** — iki ayrı sebeple: TanStack'in çekirdek satır
+   modeli `data` **referansına** göre önbellekleniyor (kök dizi aynı kaldığı
+   için model yeniden hesaplanmıyordu), ve `autoResetExpanded` varsayılanı
+   `true` olduğu için veri değişince açılan dal **anında kapanıyordu**.
+   Birincisi yeni bir dizi referansıyla, ikincisi `useGridTable`ın
+   `autoResetExpanded: false` varsayılanıyla çözüldü — ikincisi tazelemede de
+   doğru: `refetch()` sonrası kullanıcının açtığı dallar kapanmamalı.
+
+**Bir kez yükleniyor.** Ağaçta gezinmek doğal olarak "aç-kapa-aç" biçiminde;
+her açılışta ağ turu hem yavaş hem gereksiz. Tazelemek isteyen
+`invalidate(row)` çağırıyor.
+
+**"Çocuğu var" deyip boş dönen düğüm yaprağa dönüşüyor.** Sunucunun sayımı
+bayat olabiliyor. Yüklendikten sonra hâlâ ok çizseydik kullanıcı tıklar,
+hiçbir şey açılmaz ve tekrar tıklar — çalışmayan bir düğme.
+
+**Hata sonsuz "yükleniyor" bırakmıyor** ve **otomatik yeniden denemiyor**:
+denenseydi hata sürerken döngü oluşurdu (aç → yükle → hata → durum değişti →
+yeniden koş). Yeniden deneme açık bir eylem: `retry(row)`.
+
+### Gelişmiş filtre — VE / VEYA (Faz 2b)
+
+```tsx
+const advanced = useFilterBuilder();
+
+<GridFilterBuilderButton
+  fields={FILTER_FIELDS}
+  tree={advanced.tree}
+  onChange={advanced.setTree}
+  onClear={advanced.clear}
+/>
+
+// istemci tarafı:  const rows = advanced.applyTo(data, (row, field) => row[field]);
+// sunucu tarafı:   useServerGrid({ filterTree: advanced.serialized, ... })
+```
+
+**Neden ayrı bir model?** TanStack'in `columnFilters` durumu tasarımı gereği
+**düz** bir liste ve aradaki bağlaç her zaman "VE". `durum = Aktif VE (öncelik
+= Yüksek VEYA tahmin > 8)` oraya **sığmıyor** — parantezi ve VEYA'yı düz
+listeye gömmenin yolu yok. Zorlamak `columnFilters`ın şekli hakkında yalan
+söylemek olurdu; filtre satırı ve yüzeyleme o şekle güveniyor.
+
+**Neden tablonun içine değil, verinin önüne?** İstemci kipinde ağaç satırları
+tabloya girmeden süzüyor. "Sanal bir kolon filtresi" olarak sokmak mümkündü
+ama o zaman *temizle* onu da silerdi, filtre sayacı yanlış sayardı,
+yüzeyleme listesi anlamsızlaşırdı.
+
+**Yarım koşul ızgarayı boşaltmıyor.** Kullanıcı "Koşul"a basıp henüz değer
+yazmadan ızgara boşalsaydı gördüğü şey "verilerim gitti" olurdu.
+Tamamlanmamış koşullar değerlendirmeden **düşüyor** — yazmaya başlayınca
+etkisi başlıyor. Aynı gerekçeyle **boş grup** da düşüyor: `OR: []` "hiçbir
+şey eşleşmiyor" demek olurdu ve "bir grup ekledim, her şey kayboldu" ile
+sonuçlanırdı.
+
+**Sayısal karşılaştırma metin karşılaştırması değil.** `"10" < "9"` metinde
+doğrudur ve bir sayı kolonunda "büyüktür" filtresini **sessizce** yanlış
+yapardı.
+
+**Tarihte "eşittir" = aynı gün.** Kayıtlar saat de taşıyor; zaman damgasını
+birebir eşitlemek kullanıcının aklından geçen şey değil ve filtre "hiçbir
+zaman eşleşmiyor" görünürdü. Aynı tanım **sunucuda da** uygulanıyor — iki
+taraf ayrışırsa aynı filtre iki yerde farklı sonuç verir.
+
+**Sunucu tarafında iki ek sınır** (`card-filter-tree.ts` örneğinde):
+**derinlik** ve **düğüm sayısı**. 5.000 kez iç içe geçmiş bir grup tek bir
+istek; özyinelemeli çözümleme yığını taşırabiliyor ve binlerce parantezli bir
+SQL üretiyor. İkisi de açıkça **400** ile reddediliyor, sessizce kırpılmıyor:
+kırpsaydık filtrenin bir kısmı uygulanır ve sonuç tamamı uygulanmış gibi
+görünürdü.
+
+Yine sunucu tarafında ölçülen bir tuzak: **`new Date("15 Mart")` hata
+vermiyor**, V8'in gevşek çözümleyicisi "Mart"ı "Mar" okuyup **15 Mart 2001**
+döndürüyor. `Number.isNaN(getTime())` bunu yakalayamaz — tarih "geçerli".
+Tek savunma biçimi önceden doğrulamak.
+
+### Düzen kalıcılığı (Faz 8)
+
+```tsx
+const table = useGridTable({ ... });
+const layout = usePersistedGridLayout(table, { key: "kartlar" });
+
+<GridToolbar table={table} onResetLayout={layout.reset} />
+```
+
+Varsayılan olarak kaydedilenler: **kolon genişliği, sırası, görünürlüğü,
+dondurma, sıralama, gruplama, sayfa boyutu.**
+
+**Filtreler bilerek dışarıda.** Kullanıcı dün 640 kaydı 12'ye indiren bir
+filtre kurup sekmeyi kapatıyor; bugün ızgarayı açıp 12 kayıt görüyor.
+Filtreyi kendi kurduğunu hatırlamıyor ve gördüğü şey "verilerim kayboldu".
+Ekranda "bir filtre açık" diyen hiçbir şey yok. Ayrım şu: **görünümü**
+değiştiren şey kaydedilir, **veriyi** değiştiren şey kaydedilmez. İsteyen
+`include: [..., "columnFilters"]` yazıyor — ama bilerek.
+
+**`pageIndex` hiç kaydedilmiyor**, `include`a bile alınamıyor: "7. sayfa" bir
+tercih değil, geçici bir konum, ve veri değiştiyse yarın aynı sayfa başka
+kayıtları gösterir.
+
+**Neden `initialState` değil de effect içinde geri yükleme?** Next, istemci
+bileşenlerini de sunucuda çizip HTML üretiyor ve orada `localStorage` yok.
+Sunucu varsayılan genişlikleri, istemci kayıtlı genişlikleri çizerdi — React
+bunu hydration mismatch diye yüzümüze çarpar ve ağacı yamamaz. Bedeli bir
+karelik varsayılan düzen; `isRestored` dışarı veriliyor, isteyen o kareyi
+örter.
+
+**Sunucu taraflı ızgarada bir ek istek.** Geri yükleme sıralamayı veya sayfa
+boyutunu değiştiriyorsa ilk istek varsayılanlarla gitmiş olur ve bir istek daha
+atılır. Kaçınmanın tek yolu ilk isteği kayıt okunana kadar bekletmekti — o da
+her açılışta görünür bir gecikme demek.
+
+**Budama zorunlu.** Kayıt o günkü kolon kimliklerine gönderme yapıyor. Kolon
+kaldırıldıysa `columnPinning` var olmayan bir kolonun ofsetini saymaya
+çalışır — ve en kötüsü, bayat bir `columnFilters` kaydı **sunucu taraflı**
+ızgarada API'ye gidip "Filtrelenemeyen alan" 400'ü döndürür. Kullanıcının
+gördüğü: ızgara açılmıyor, sebep belirsiz, **sayfayı yenilemek kurtarmıyor**
+çünkü hata kayıtlı. Var olmayan kimlikler yüklemede atılıyor.
+
+**Budama bir dilimi tamamen boşalttıysa o dilim hiç uygulanmıyor.** Tarayıcıda
+ölçüldü: bayat bir `columnPinning: { start: ["silinmisKolon"] }` kaydı budanıp
+`{ start: [], end: [] }` olarak tabloya yazılıyordu ve uygulamanın
+`initialState`teki "kimlik kolonları dondurulsun" kararını sessizce siliyordu.
+Boşalmış bir liste "kullanıcı boş istedi" demek değil, "elimizde bir şey
+kalmadı" demek — kayıt **zaten** boşsa uygulanıyor (yoksa tercih her
+yenilemede geri gelirdi), budama boşalttıysa varsayılan korunuyor.
+
+**"Düzeni sıfırla" bir süs değil.** Kalıcılık olmadan kötü bir düzenden
+çıkmanın yolu sayfayı yenilemekti; düzen kaydedilir hale gelince o yol da
+kapanıyor. Sıfırlamayı eklemeden kalıcılığı açmak, kullanıcıyı kendi
+kurduğu tuzakta bırakmak olurdu.
+
+**Yazma geciktiriliyor** (400ms). `columnResizeMode: "onChange"` ile tek bir
+sürükleme yüzlerce durum değişikliği üretiyor ve `localStorage` **senkron** —
+her yazma ana iş parçacığını kilitler.
+
+**Sunucuya kaydetmek:** `storage` üç fonksiyonluk bir arayüz
+(`read`/`write`/`remove`) ve `Promise` döndürebiliyor.
+
+```tsx
+usePersistedGridLayout(table, {
+  key: "kartlar",
+  storage: {
+    read: (k) => fetch(`/api/layout/${k}`).then((r) => r.text()),
+    write: (k, v) => fetch(`/api/layout/${k}`, { method: "PUT", body: v }),
+    remove: (k) => fetch(`/api/layout/${k}`, { method: "DELETE" }),
+  },
+});
+```
+
 ### Klavye navigasyonu (Faz 7)
 
 Ekstra bir kurulum yok: `DataGrid` `role="grid"` çiziyor ve klavye kancasını
@@ -454,6 +649,8 @@ Varsayılanlar TanStack'ten farklı olduğu yerlerde, sebebi kodda yazıyor.
 | `role="grid"` **davranışıyla birlikte** geldi | O rol tam klavye navigasyonu taahhüt eder. Faz 7'ye kadar bilinçli olarak yazılmadı: davranışsız bir rol, kullanıcıyı ok tuşlarına basıp hiçbir şey olmayan bir tabloya hapsetmek olurdu. Önce söz verip sonra tutmak değil — önce tutmak. |
 | Özet **opt-in** (`meta.aggregate`) | TanStack'in varsayılanı `aggregationFn: "auto"`: sayısal her kolon kendini toplanabilir sanıyor. Ölçüldü — kart **numarası** kolonu grup başlıklarında kimliklerin toplamını gösterdi (91, 72, 78, 84): anlamsız ama anlamlı duracak biçimde biçimlenmiş dört sayı. Sayısal olmak toplanabilir olmak değildir (kimlik, yıl, posta kodu). |
 | Grup paneli **sürükle-bırak değil**, açılır liste | Sürükle-bırak bir bağımlılık (~30 KB) demek ve bedeli gruplamayı kullanmayanlar da öder; ayrıca klavyeyle çalışmaz. Aynı yetenek, üçte bir kod, sıfır bağımlılık. |
+| Filtreler **varsayılan olarak kaydedilmiyor** | Dün kurduğu filtreyi hatırlamayan kullanıcının gördüğü şey "verilerim kayboldu"dur ve ekranda sebebi söyleyen bir şey yoktur. Kural: **görünümü** değiştiren kaydedilir, **veriyi** değiştiren kaydedilmez. |
+| `pageIndex` **hiç** kaydedilmiyor | "7. sayfa" bir tercih değil, geçici bir konum; veri değiştiyse yarın aynı sayfa başka kayıtları gösterir. `pageSize` ise gerçek bir tercih. |
 | Sunucu modunda özet **"Bu sayfa"** diye etiketleniyor | İstemcide yalnızca o sayfa var. Sayıyı gizlemek de, "Toplam" deyip yanlış sunmak da kötü; kapsamı yazmak yanıltmıyor. |
 | `Subscribe` ile durum okuma | React Compiler, `row.getIsSelected()` gibi metot içi okumaları göremez ve satırı yeniden çizmez. Tüketicinin derleyici kullanıp kullanmadığını bilemeyeceğimiz için her zaman çalışan biçim yazıldı. |
 | `"use client"` derleme sonrası ekleniyor | `tsup` banner'ını paketleyici **sessizce atıyor**. Olmadan Next App Router paketi sunucuda çalıştırır ve hata tüketicinin ekranında patlar. |
@@ -478,22 +675,91 @@ Varsayılanlar TanStack'ten farklı olduğu yerlerde, sebebi kodda yazıyor.
       metin / sayı aralığı / tarih aralığı / faceted çoklu seçim), genel arama,
       kolon seçici, satır işlemleri menüsü, genişlik sınırları, tam genişlik
       yerleşimi. 24 test.
-- [ ] **Faz 2b — Filtre kurucu:** çoklu koşullu ("VE/VEYA") gelişmiş filtre paneli.
+- [x] **Faz 2b — Filtre kurucu:** iç içe VE/VEYA grupları, tipe göre işleçler,
+      istemci değerlendirmesi ve sunucuya serileştirme.
 - [x] **Faz 5 — Sanallaştırma:** dolgu satırlarıyla, dondurulmuş kolonlar ve
       yapışkan başlıkla uyumlu.
 - [x] **Faz 6 — Düzenleme:** hücre/toplu kip, doğrulama, kirli takibi,
       kaydet/vazgeç çubuğu.
 - [x] **Excel:** bağımlılıksız .xlsx yazma/okuma (ZIP + OOXML).
-- [ ] **Faz 3 — Ağaç ileri seviye:** tembel çocuk yükleme, sunucu taraflı ağaç.
+- [x] **Faz 3 — Ağaç ileri seviye:** tembel çocuk yükleme (`useLazyTree`),
+      sunucu taraflı ağaç uç noktası.
 - [x] **Faz 4 — Gruplama + özetler:** grup paneli (rozetler), grup başlığı
       satırları, `<tfoot>` genel toplam.
 - [x] **Faz 7 — Klavye + a11y:** gezinen odak (roving tabindex), `role="grid"`,
       `aria-rowcount`/`aria-rowindex`, gezinme ve eylem kipleri.
-- [ ] **Faz 8 — Durum kalıcılığı:** kolon genişliği/sırası/görünürlüğü ve
-      filtrelerin kaydedilmesi (localStorage ya da sunucu).
+- [x] **Faz 8 — Durum kalıcılığı:** kolon genişliği/sırası/görünürlüğü/
+      dondurma, sıralama, gruplama ve sayfa boyutu; `localStorage` ya da
+      takılabilir depo (sunucu).
 - [ ] **Faz 9 — Paketleme:** sürümleme, değişiklik günlüğü, yayınlama.
 
 ---
+
+## Sürüm ve yayınlama (Faz 9)
+
+Sürüm **0.2.0**. 1.0 bilerek bekliyor: "1.0" demek "bu arayüzü kırmayacağım"
+sözü vermektir ve Faz 3 hâlâ arayüze dokunacak. 1.0 öncesi **kırıcı
+değişiklikler minor'ü artırıyor** (`0.1` → `0.2`).
+
+### Projelerde kullanmak
+
+Bugün en pratik yol yerel tarball; `npm link` **kullanma**, sembolik bağlantı
+Turbopack'i çökertiyor.
+
+```bash
+npm --prefix ../datagrid run pack:local     # dist üretir + .tgz yazar
+npm install ../tudos-datagrid-0.2.0.tgz
+```
+
+Tüketici tarafında `scripts/sync-datagrid.mjs` bunu tek komuta indiriyor
+(`npm run grid:sync`) çünkü **üç ayrı önbellek** aynı anda yanıltıyor:
+
+| Önbellek | Belirtisi |
+| --- | --- |
+| npm, aynı sürümü "up to date" sayıp kurulumu atlıyor | yeni dışa aktarımlar "Export X doesn't exist" |
+| Turbopack modül grafiği | var olan bir export için "Module not found" |
+| Tailwind'in `node_modules` taraması | UI "bozuk" görünüyor, kodda hata yok |
+
+Üçüncüsü bu projede bir **UI hatası olarak rapor edildi** ve kod boşuna
+arandı. Script `.next`i siliyor; bu yüzden **çalışan dev sunucusunu
+durdurup yeniden başlatmak adımın parçası** — açık bir sunucu `.next`
+silindikten sonra paket kurulu olmasına rağmen "Module not found" verir.
+
+### Yayın kapıları
+
+`npm run ci` artık **`verify:package`** ile bitiyor: `npm publish`in
+göndereceği şey `dist/` değil, `files` alanının seçtiği şeydir. İkisi
+ayrışırsa derleme yeşil, testler yeşil, **tarball bozuk** olur — ve bu hata
+bizde hiç görünmez, ancak başka bir projede ortaya çıkar. Kontrol ettikleri:
+
+- `exports`/`main`/`module`/`types` ne gösteriyorsa tarball'da var mı,
+- `dist/index.js` ve `.cjs` `"use client"` ile başlıyor mu (postbuild'e ek
+  ikinci savunma — direktifin kaybolması tüketicinin ekranında
+  "useState only works in Client Components" olarak patlıyor),
+- kaynak/test dosyaları sızmış mı,
+- akran bağımlılığı aynı anda normal bağımlılık mı (olursa tüketici React'in
+  ikinci kopyasını kurar → "Invalid hook call").
+
+`npm publish` öncesi `prepublishOnly` → **`release:check`** çalışıyor. Bu, CI
+ile aynı şey değil: CI **kodun** doğruluğuna bakıyor, bu kapı kodun dışında
+kalan ve **geri alınamayan** şeylere —
+
+- yayınlanan sürüm numarası bir daha kullanılamaz (npm aynı sürümü ikinci kez
+  kabul etmiyor),
+- commit edilmemiş değişiklikle yayınlamak, yayındaki kodun hiçbir commit'e
+  karşılık gelmemesi demek — geri üretilemez,
+- CHANGELOG girdisi olmayan bir sürüm "ne değişti?" sorusuna cevap vermiyor.
+
+Hiçbiri testle yakalanmaz, çünkü hiçbiri kodla ilgili değil.
+
+### Bir sürüm çıkarmak
+
+```bash
+# 1. package.json sürümünü artır, CHANGELOG.md'ye "## [x.y.z]" girdisini yaz
+# 2. commit et  (kapı kirli çalışma ağacını reddediyor)
+npm run release:check
+git tag vx.y.z && git push --tags
+```
 
 ## Geliştirme
 

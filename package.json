@@ -1,11 +1,13 @@
 {
   "name": "@tudos/datagrid",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DevExtreme sinifinda, TanStack Table v9 + shadcn/Tailwind uzerine kurulu basliksiz DataGrid ve TreeGrid.",
   "type": "module",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "exports": {
     ".": {
@@ -25,8 +27,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "ci": "biome ci . && tsc --noEmit && vitest run && npm run build",
-    "pack:local": "npm run build && npm pack --pack-destination .."
+    "ci": "biome ci . && tsc --noEmit && vitest run && npm run build && npm run verify:package",
+    "pack:local": "npm run build && npm pack --pack-destination ..",
+    "verify:package": "node ./scripts/verify-package.mjs",
+    "release:check": "node ./scripts/release-check.mjs",
+    "prepublishOnly": "npm run release:check"
   },
   "peerDependencies": {
     "@base-ui/react": ">=1.7.0",
@@ -56,5 +61,34 @@
     "tsup": "^8.5.0",
     "typescript": "^5",
     "vitest": "^5.0.0"
+  },
+  "license": "MIT",
+  "author": "Haktan Albayrak",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HaktanAlbayrak/datagrid.git"
+  },
+  "homepage": "https://github.com/HaktanAlbayrak/datagrid#readme",
+  "bugs": {
+    "url": "https://github.com/HaktanAlbayrak/datagrid/issues"
+  },
+  "keywords": [
+    "react",
+    "datagrid",
+    "treegrid",
+    "table",
+    "tanstack-table",
+    "shadcn",
+    "tailwind",
+    "virtualization",
+    "xlsx",
+    "devextreme"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

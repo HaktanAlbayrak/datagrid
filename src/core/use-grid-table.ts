@@ -203,6 +203,27 @@ export function useGridTable<TData extends RowData>(
     paginateExpandedRows: false,
 
     /**
+     * VERI DEGISINCE ACIK DALLAR KAPANMIYOR (`autoResetExpanded: false`).
+     *
+     * TanStack varsayilani `true`: `data` referansi degistiginde genisletme
+     * durumu sifirlaniyor. Gerekcesi makul (yeni veriye ait olmayan bayat
+     * bir genisletme kalmasin) ama bir izgarada iki yerde birden yikici:
+     *
+     * 1. TEMBEL AGACTA CALISMAYI TAMAMEN ENGELLIYOR. Cocuklar yuklendiginde
+     *    `data` degisiyor -> genisletme sifirlaniyor -> dal kapaniyor ->
+     *    kullanicinin actigi sey aninda kapaniyor. Tarayicida ve testte
+     *    olculdu: yukleme basariyla bitiyor, ekranda hicbir sey acilmiyor.
+     *
+     * 2. TAZELEMEDE de yanlis: duzenleme kaydedip `refetch()` cagirinca
+     *    kullanicinin actigi butun dallar kapanirdi.
+     *
+     * Satir kimlikleri kararli oldugu surece (`getRowId` verildiginde) eski
+     * genisletmeyi korumak DOGRU davranis: kullanici agaci yeniden acmak
+     * zorunda kalmiyor.
+     */
+    autoResetExpanded: false,
+
+    /**
      * GRUPLANAN KOLON BASA TASINIR (`groupedColumnMode: "reorder"`).
      *
      * Alternatifler `"remove"` (gruplanan kolonu tablodan cikarmak) ve

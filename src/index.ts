@@ -3,6 +3,11 @@ export { ColumnFilterPopup } from "./components/column-filter-popup";
 export { DataGrid, type DataGridProps } from "./components/data-grid";
 export { GridEditBar } from "./components/edit-bar";
 export { EditableCell } from "./components/editable-cell";
+export {
+  describeFilterTree,
+  GridFilterBuilder,
+  GridFilterBuilderButton,
+} from "./components/grid-filter-builder";
 export { GridGroupPanel } from "./components/grid-group-panel";
 export {
   GridExportButton,
@@ -38,7 +43,32 @@ export {
   gridFeatures,
 } from "./core/features";
 export { filterFn_oneOf } from "./core/filter-fns";
+export {
+  addToGroup,
+  type ConditionOperator,
+  countActiveConditions,
+  createCondition,
+  createGroup,
+  type FilterCondition,
+  type FilterField,
+  type FilterFieldType,
+  type FilterGroup,
+  type FilterNode,
+  filterRowsByTree,
+  matchesFilterTree,
+  normalizeFilterTree,
+  OPERATOR_LABEL,
+  OPERATORS_BY_TYPE,
+  removeNode,
+  serializeFilterTree,
+  updateNode,
+} from "./core/filter-tree";
+export {
+  type GridStorage,
+  localStorageAdapter,
+} from "./core/grid-storage";
 export { type GridColumn, getPinnedEdge, getPinnedStyle } from "./core/pinning";
+export { useFilterBuilder } from "./core/use-filter-builder";
 export {
   type CellAddress,
   type CellErrors,
@@ -54,6 +84,11 @@ export {
   useGridKeyboard,
 } from "./core/use-grid-keyboard";
 export {
+  type PersistedSlice,
+  type UseGridPersistenceOptions,
+  usePersistedGridLayout,
+} from "./core/use-grid-persistence";
+export {
   type GridTable,
   type GridTableOptions,
   useGridTable,
@@ -62,6 +97,10 @@ export {
   type GridVirtualizerOptions,
   useGridVirtualizer,
 } from "./core/use-grid-virtualizer";
+export {
+  type UseLazyTreeOptions,
+  useLazyTree,
+} from "./core/use-lazy-tree";
 export {
   type ServerGridQuery,
   type ServerGridResult,

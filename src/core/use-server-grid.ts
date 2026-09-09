@@ -12,6 +12,15 @@ export interface ServerGridQuery {
   sorting: SortingState;
   columnFilters: ColumnFiltersState;
   globalFilter: string;
+  /**
+   * Gelismis filtre agaci, SERILESTIRILMIS hali (Faz 2b).
+   *
+   * Nesne degil DIZE tasiyoruz. Sebep bu kancanin sorgu kimligi: durum
+   * degisikligini derin karsilastirma yerine bir dizeye bakarak anliyoruz;
+   * nesne olsaydi her render'da yeni bir referans gelir ve sonsuz istek
+   * dongusu olusurdu. `useFilterBuilder` zaten `useMemo`lu dize veriyor.
+   */
+  filterTree?: string;
 }
 
 export interface ServerGridResult<TData> {
@@ -31,6 +40,15 @@ export interface UseServerGridOptions<TData extends RowData> {
    * tiklama; onlari geciktirmek arayuzu tembel gosterir.
    */
   debounceMs?: number;
+  /**
+   * Gelismis filtre agaci, serilestirilmis (Faz 2b).
+   *
+   * Bu kanca agaci YONETMIYOR, yalnizca sorguya katiyor. Sebep: agac
+   * kullanicinin kurdugu bir ifade ve arayuzu (kurucu) tamamen disarida --
+   * durumunu burada tutmak, iki ayri yerin ayni seyin sahibi olmasi
+   * demekti. `useFilterBuilder` uretiyor, buraya DIZE olarak geliyor.
+   */
+  filterTree?: string;
   onError?: (error: unknown) => void;
 }
 
@@ -51,6 +69,7 @@ export function useServerGrid<TData extends RowData>({
   initialPageSize = 25,
   initialSorting = [],
   debounceMs = 300,
+  filterTree,
   onError,
 }: UseServerGridOptions<TData>) {
   const [pagination, setPagination] = useState<PaginationState>({
@@ -120,7 +139,15 @@ export function useServerGrid<TData extends RowData>({
    * Bu yuzden iki ayri bagimlilik listesi var: biri aninda, digeri
    * gecikmeli tetikliyor.
    */
-  const filterKey = JSON.stringify({ columnFilters, globalFilter });
+  /*
+    GELISMIS FILTRE DE GECIKTIRILENLER ARASINDA.
+
+    Kurucudaki bir metin kutusuna yazmak da tus basina bir durum
+    degisikligi uretiyor; sayfa/siralama gibi tek tiklamalik degil.
+    Ayni kefeye koymak, "Mühendislik" yazarken 11 istek atilmasini
+    onluyor.
+  */
+  const filterKey = JSON.stringify({ columnFilters, globalFilter, filterTree });
   const [debouncedFilterKey, setDebouncedFilterKey] = useState(filterKey);
 
   useEffect(() => {
@@ -135,6 +162,25 @@ export function useServerGrid<TData extends RowData>({
     return () => clearTimeout(timer);
   }, [filterKey, debounceMs]);
 
+  /*
+    GELISMIS FILTRE DEGISINCE DE ILK SAYFAYA DON.
+
+    Kolon filtreleri ve arama icin bu, asagidaki `options` sarmalayicilarinda
+    yapiliyor; gelismis filtre disaridan geldigi icin onu bir etki
+    izliyor. Olmasaydi 12. sayfadayken kurulan bir filtre sonucu 3 sayfaya
+    dusurur ve kullanici bos bir ekran gorurdu -- veri var, yalnizca yanlis
+    sayfada.
+  */
+  // `filterTree` govdede OKUNMUYOR ama bagimlilikta olmak ZORUNDA: burada
+  // bir DEGER degil TETIKLEYICI. Yalnizca `resetPage` yazsaydik (kararli bir
+  // `useCallback`) etki bir kez calisir ve filtre degisince sayfa
+  // sifirlanmazdi. Linter kullanimini goremedigi icin "gereksiz" diyor --
+  // `reloadToken` ile ayni durum.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: filterTree bir tetikleyici; kaldırılırsa filtre değişince sayfa sıfırlanmaz
+  useEffect(() => {
+    resetPage();
+  }, [filterTree, resetPage]);
+
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
@@ -147,9 +193,15 @@ export function useServerGrid<TData extends RowData>({
     requestId.current = id;
     setIsLoading(true);
 
-    const { columnFilters: filters, globalFilter: search } = JSON.parse(
-      debouncedFilterKey,
-    ) as { columnFilters: ColumnFiltersState; globalFilter: string };
+    const {
+      columnFilters: filters,
+      globalFilter: search,
+      filterTree: tree,
+    } = JSON.parse(debouncedFilterKey) as {
+      columnFilters: ColumnFiltersState;
+      globalFilter: string;
+      filterTree?: string;
+    };
 
     fetcherRef
       .current({
@@ -157,6 +209,7 @@ export function useServerGrid<TData extends RowData>({
         sorting,
         columnFilters: filters,
         globalFilter: search,
+        ...(tree === undefined ? {} : { filterTree: tree }),
       })
       .then((result) => {
         // Bayat cevap: daha yeni bir istek baslamis, bunu YOK SAY.
@@ -243,6 +296,7 @@ export function serializeGridQuery(query: ServerGridQuery): {
   sort?: string;
   q?: string;
   filters?: string;
+  filterTree?: string;
 } {
   const sort = query.sorting
     .map((entry) => `${entry.id}:${entry.desc ? "desc" : "asc"}`)
@@ -253,6 +307,9 @@ export function serializeGridQuery(query: ServerGridQuery): {
     pageSize: query.pagination.pageSize,
     ...(sort === "" ? {} : { sort }),
     ...(query.globalFilter === "" ? {} : { q: query.globalFilter }),
+    ...(query.filterTree === undefined || query.filterTree === ""
+      ? {}
+      : { filterTree: query.filterTree }),
     ...(query.columnFilters.length === 0
       ? {}
       : { filters: JSON.stringify(query.columnFilters) }),

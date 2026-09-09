@@ -19,9 +19,18 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme
   `describeFilterTree`.
 - **Faz 3 — Tembel ağaç:** `useLazyTree` (açılınca yükleme, önbellek,
   eşzamanlı dallar, hata/yeniden deneme, "çocuğu var" deyip boş dönen düğüm).
+- **Dal içi sayfalama:** `loadChildren` artık `{ rows, nextCursor }`
+  döndürebiliyor; `moreRow` fabrikası dalın sonuna "daha fazla" satırı
+  ekliyor, `loadMore(parent)` sonraki sayfayı **ekliyor**. Düz dizi dönüşü
+  hâlâ destekleniyor.
 
 ### Değişti
 
+- `aria-rowcount` artık `max(getRowCount(), çizilen satır)`. Ağaçta
+  `paginateExpandedRows: false` sayfalamayı **kök** satırlar üzerinden
+  saydığı için açılmış bir dal 500 satır gösterirken öznitelik "2" diyordu.
+- `describeFilterTree` değerleri `filterOptions` etiketlerine çeviriyor
+  ("Tip şunlardan biri **task**" → "**Görev**").
 - `useGridTable` varsayılanı **`autoResetExpanded: false`**. TanStack
   varsayılanı `true` ve veri değişince açık dalları kapatıyordu: tembel
   ağaçta bu, yüklenen dalın anında kapanması demekti; tazelemede ise

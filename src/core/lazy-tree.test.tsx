@@ -7,12 +7,14 @@ import { DataGrid } from "../components/data-grid";
 import { TreeCell } from "../components/tree-cell";
 import { createGridColumnHelper } from "./features";
 import { useGridTable } from "./use-grid-table";
-import { useLazyTree } from "./use-lazy-tree";
+import { type LazyChildren, useLazyTree } from "./use-lazy-tree";
 
 interface Node {
   id: string;
   name: string;
   childCount: number;
+  /** ARAYUZE ait bir isaret: "daha fazla" sentinel satiri. */
+  isMore?: boolean;
 }
 
 const helper = createGridColumnHelper<Node>();
@@ -20,7 +22,14 @@ const helper = createGridColumnHelper<Node>();
 const columns = helper.columns([
   helper.accessor("name", {
     header: "Ad",
-    cell: (context) => <TreeCell context={context} />,
+    cell: (context) =>
+      context.row.original.isMore === true ? (
+        <button type="button" data-more={context.row.original.id}>
+          Daha fazla
+        </button>
+      ) : (
+        <TreeCell context={context} />
+      ),
   }),
 ]);
 
@@ -43,14 +52,27 @@ const TREE: Record<string, Node[]> = {
 function Tree({
   load,
   onError,
+  paged = false,
 }: {
-  load: (parent: Node | null) => Promise<Node[]>;
+  load: (parent: Node | null, cursor?: string) => Promise<LazyChildren<Node>>;
   onError?: (error: unknown) => void;
+  /** "Daha fazla" satirini uretsin mi? */
+  paged?: boolean;
 }) {
   const lazy = useLazyTree<Node>({
     loadChildren: load,
     getRowId: (row) => row.id,
     hasChildren: (row) => row.childCount > 0,
+    ...(paged
+      ? {
+          moreRow: (parent: Node) => ({
+            id: `more:${parent.id}`,
+            name: "Daha fazla",
+            childCount: 0,
+            isMore: true,
+          }),
+        }
+      : {}),
     ...(onError === undefined ? {} : { onError }),
   });
 
@@ -81,7 +103,22 @@ function Tree({
 
   return (
     <>
-      <DataGrid table={table} isLoading={lazy.isLoadingRoot} />
+      <DataGrid
+        table={table}
+        isLoading={lazy.isLoadingRoot}
+        onRowClick={(row) => {
+          // "Daha fazla" satirina tiklamak dalin sonraki sayfasini getiriyor.
+          if (row.original.isMore !== true) return;
+          const parentId = row.original.id.replace("more:", "");
+          const parent =
+            lazy.rows.find((entry) => entry.id === parentId) ??
+            table
+              .getRowModel()
+              .rows.map((entry) => entry.original)
+              .find((entry) => entry.id === parentId);
+          if (parent !== undefined) lazy.loadMore(parent);
+        }}
+      />
       <button
         type="button"
         onClick={() => {
@@ -246,6 +283,96 @@ describe("tembel ağaç", () => {
     // Ikisi de ayakta: gec donen erken doneni silmedi.
     expect(screen.getByText("Kolon C1")).toBeInTheDocument();
     expect(screen.getByText("Kolon A1")).toBeInTheDocument();
+  });
+
+  test("uzun dal SAYFALANIYOR: 'daha fazla' satırı çıkıyor", async () => {
+    /*
+      OLCULEN SORUN: dal sunucuda 500'de KIRPILIYORDU. Kolon rozeti
+      "(640)" derken dal acilinca 500 kart geliyor, kalan 140'a ulasmanin
+      hicbir yolu olmuyordu.
+
+      "500/640 gosteriliyor" notu kirpmayi GORUNUR yapardi ama cozmezdi.
+      Sayfalama hem gorunur hem cozuyor.
+    */
+    const user = userEvent.setup();
+    const load = vi.fn(async (parent: Node | null, cursor?: string) => {
+      if (parent === null) {
+        return [{ id: "a", name: "Pano A", childCount: 4 }];
+      }
+      return cursor === undefined
+        ? {
+            rows: [{ id: "a1", name: "Kolon A1", childCount: 0 }],
+            nextCursor: "c1",
+          }
+        : { rows: [{ id: "a2", name: "Kolon A2", childCount: 0 }] };
+    });
+
+    render(<Tree load={load} paged />);
+    await screen.findByText("Pano A");
+
+    await user.click(expandButton("Pano A") as HTMLElement);
+    await screen.findByText("Kolon A1");
+
+    // Ilk sayfa geldi ve devami OLDUGU soyleniyor.
+    const daha = screen.getByRole("button", { name: "Daha fazla" });
+    expect(daha).toBeInTheDocument();
+    expect(screen.queryByText("Kolon A2")).not.toBeInTheDocument();
+
+    await user.click(daha);
+    await screen.findByText("Kolon A2");
+
+    /*
+      IKINCI SAYFA EKLENDI, USTUNE YAZMADI. Ustune yazsaydik kullanici
+      "daha fazla"ya basinca ilk sayfa kaybolurdu -- yani dugme veri
+      ekleyecegine veri degistirirdi.
+    */
+    expect(screen.getByText("Kolon A1")).toBeInTheDocument();
+
+    // Dal bitti: "daha fazla" KAYBOLDU. Kalsaydi hicbir sey getirmeyen
+    // bir dugme olurdu.
+    expect(
+      screen.queryByRole("button", { name: "Daha fazla" }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("düz dizi dönen loadChildren hâlâ çalışıyor", async () => {
+    // Sayfalamaya ihtiyaci olmayan agaclarda tuketiciyi `{ rows }` yazmaya
+    // zorlamak gereksiz bir toren olurdu.
+    const user = userEvent.setup();
+    const load = loader();
+    render(<Tree load={load} />);
+    await screen.findByText("Pano A");
+
+    await user.click(expandButton("Pano A") as HTMLElement);
+    await screen.findByText("Kolon A1");
+    expect(
+      screen.queryByRole("button", { name: "Daha fazla" }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("aria-rowcount AÇILMIŞ dalları da sayıyor", async () => {
+    const user = userEvent.setup();
+    const load = loader();
+    render(<Tree load={load} />);
+    await screen.findByText("Pano A");
+
+    const grid = screen.getByRole("grid");
+    // 2 kok + 1 baslik.
+    expect(grid).toHaveAttribute("aria-rowcount", "3");
+
+    await user.click(expandButton("Pano A") as HTMLElement);
+    await screen.findByText("Kolon A1");
+
+    /*
+      OLCULEN HATA: tarayicida bir pano acilip 500 karta ulasildiginda
+      `aria-rowcount` "2" diyordu -- ekran okuyucuya "2 satir var" denirken
+      kullanicinin gezebilecegi 502 satir vardi.
+
+      SEBEBI: `paginateExpandedRows: false` sayfalamayi KOK satirlar
+      uzerinden sayiyor ve `getRowCount()` o sayimi donduruyor. Acilan
+      cocuklar sayima hic girmiyordu.
+    */
+    expect(grid).toHaveAttribute("aria-rowcount", "5");
   });
 
   test("invalidate önbelleği atıyor, sonraki açılışta yeniden yüklüyor", async () => {

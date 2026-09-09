@@ -151,6 +151,31 @@ export function DataGrid<TData extends RowData>({
       }))
     : rows.map((row, index) => ({ row, index }));
 
+  /*
+    `aria-rowcount` -- ve `getRowCount()` TEK BASINA YETMIYOR.
+
+    OLCULEN HATA: agac sayfasinda bir pano acilip 500 karta ulasildiginda
+    `aria-rowcount` "2" diyordu. Ekran okuyucuya "burada 2 satir var"
+    denirken kullanicinin ok tuslariyla gezebilecegi 502 satir vardi --
+    yani Faz 7'nin onlemesi gereken hatanin ta kendisi, 250 kat buyutulmus
+    hali.
+
+    SEBEBI: `paginateExpandedRows: false` (agacta dogru olan) sayfalamayi
+    KOK satirlar uzerinden sayiyor; `getRowCount()` de o sayimi donduruyor.
+    Bir kok, 500 cocuk -> 1.
+
+    Iki kaynagin BUYUGUNU aliyoruz:
+      - Sunucu tarafli / sayfalanmis duz izgara: `getRowCount()` toplam
+        kayit sayisini biliyor, cizilen satirlardan buyuk. Kazanan o.
+      - Acilmis agac: cizilen satir modeli koklerden buyuk. Kazanan o.
+
+    SINIRI DURUSTCE: hem sayfalanan hem agac olan bir izgarada DIGER
+    sayfalardaki cocuklar sayilmiyor; deger yaklasik kaliyor. ARIA
+    "bilinmiyor" icin -1'e izin veriyor ama yaklasik-ve-yakin bir sayi,
+    250 kat yanlis bir sayidan da "bilinmiyor"dan da iyi.
+  */
+  const ariaRowCount = Math.max(table.getRowCount(), rows.length) + 1;
+
   const keyboard = useGridKeyboard({
     gridRef,
     rowCount: rows.length,
@@ -202,7 +227,7 @@ export function DataGrid<TData extends RowData>({
         role="grid"
         // Baslik satiri da sayiliyor: ekran okuyucu "satir 1" derken
         // basligi kastediyor, ilk kaydi degil.
-        aria-rowcount={table.getRowCount() + 1}
+        aria-rowcount={ariaRowCount}
         aria-colcount={columnCount}
         onKeyDown={keyboard.onKeyDown}
         className="table-fixed"

@@ -10,7 +10,7 @@ DevExtreme sınıfında bir **DataGrid / TreeGrid** — TanStack Table v9 + shad
 > işlemleri menüsü**, **gruplama + özetler**, **klavye navigasyonu
 > (`role="grid"`)**, **düzen kalıcılığı**, sayfalama, yapışkan başlık,
 > **gelişmiş filtre (VE/VEYA)**, **tembel ağaç**, boş/yükleniyor durumları.
-> 107 test. Yol haritası aşağıda.
+> 111 test. Yol haritası aşağıda.
 
 ---
 
@@ -422,6 +422,30 @@ fikirsiz (idempotent), her genişletme değişikliğinde çağrılabiliyor.
 **Bir kez yükleniyor.** Ağaçta gezinmek doğal olarak "aç-kapa-aç" biçiminde;
 her açılışta ağ turu hem yavaş hem gereksiz. Tazelemek isteyen
 `invalidate(row)` çağırıyor.
+
+**Uzun dallar sayfalanıyor.** `loadChildren` `{ rows, nextCursor }`
+döndürebiliyor; `nextCursor` varsa hook dalın sonuna bir "daha fazla" satırı
+ekliyor (`moreRow` fabrikası) ve `loadMore(parent)` sonraki sayfayı
+**ekliyor** — üstüne yazmıyor.
+
+Bu, ölçülen bir eksiği kapattı: sunucu dalı 500'de **kırpıyordu**. Tarayıcıda
+kolon rozeti "(640)" derken dal açılınca 500 kart geliyor, kalan 140'a
+ulaşmanın hiçbir yolu olmuyordu — ve ekranda bunu söyleyen bir şey de yoktu.
+"500/640 gösteriliyor" gibi bir not kırpmayı *görünür* yapardı ama çözmezdi.
+
+**"Daha fazla" bir satır, dalın altında bir düğme değil** — düz bir tabloda
+"dalın altı" diye bir yer yok; satırlar tek bir akışta. Sentinel satır doğru
+yerde duruyor, sanallaştırmaya dahil oluyor ve klavyeyle erişilebiliyor.
+
+**Satırın şeklini tüketici veriyor** (`moreRow`), çünkü satırın tipi `TData`
+ve o tip tüketicinin. Hook bir nesne uydursaydı ya `TData`yı kirletirdi
+(zorunlu bir `kind: "more"` alanı) ya da tip güvenliğini `as` ile delerdi.
+
+Sunucu tarafında **keyset (imleç)**, offset değil: dal açıkken araya bir kayıt
+eklenirse offset bir kaydı **atlar** ya da iki kez gösterir. İmleç
+`(rank, id)` çifti üzerinden ilerliyor — ve koşul **iki terimli**, çünkü tek
+terimle (`rank > x`) yazsaydık aynı `rank`e sahip kayıtlar sayfa sınırına
+denk geldiğinde bir kısmı atlanırdı.
 
 **"Çocuğu var" deyip boş dönen düğüm yaprağa dönüşüyor.** Sunucunun sayımı
 bayat olabiliyor. Yüklendikten sonra hâlâ ok çizseydik kullanıcı tıklar,

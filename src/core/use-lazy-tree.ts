@@ -7,14 +7,48 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  * olan uc sey de FONKSIYON olarak disaridan geliyor. Kimlik alaninin adini
  * dayatmak (`id` diye) tuketiciyi veri modelini degistirmeye zorlardi.
  */
+/**
+ * `loadChildren`in donusu.
+ *
+ * Duz bir dizi de kabul ediliyor: sayfalamaya ihtiyaci olmayan (kucuk,
+ * sinirli) agaclarda tuketiciyi `{ rows }` yazmaya zorlamak gereksiz bir
+ * toren olurdu.
+ */
+export type LazyChildren<TData> =
+  | TData[]
+  | { rows: TData[]; nextCursor?: string };
+
 export interface UseLazyTreeOptions<TData> {
   /**
    * Bir dugumun cocuklarini getirir. Kok icin `null` geliyor.
    *
+   * `cursor` verildiginde SONRAKI sayfa isteniyor demektir; `undefined`
+   * ise dalin basi.
+   *
    * `Promise` reddederse satir "yukleniyor" durumunda BIRAKILMIYOR --
-   * hata isaretleniyor ve ok yeniden denenebilir hale geliyor.
+   * hata isaretleniyor ve dugum `retry()` ile yeniden denenebiliyor.
    */
-  loadChildren: (parent: TData | null) => Promise<TData[]>;
+  loadChildren: (
+    parent: TData | null,
+    cursor?: string,
+  ) => Promise<LazyChildren<TData>>;
+
+  /**
+   * "DAHA FAZLA" SATIRINI URETEN FABRIKA.
+   *
+   * ---
+   * NEDEN KANCA KENDI SATIRINI UYDURMUYOR?
+   *
+   * Cunku satirin tipi `TData` ve o tip TUKETICININ. Kanca bir nesne
+   * uydursaydi ya `TData`yi kirletirdi (zorunlu bir `kind: "more"` alani)
+   * ya da tip guvenligini `as` ile delerdi -- ve o delik ilk yanlis
+   * varsayimda calisma zamaninda patlardi.
+   *
+   * Fabrika verilmezse sayfalama KAPALI: dal ilk sayfayla kaliyor.
+   * Sessizce degil -- `nextCursorOf()` yine imleci veriyor, tuketici
+   * isterse kendi arayuzunu ciziyor.
+   */
+  moreRow?: (parent: TData, remaining: { cursor: string }) => TData;
   getRowId: (row: TData) => string;
   /**
    * Bu dugumun cocugu VAR MI? (yuklenmeden once bilinmesi gereken sey)
@@ -38,7 +72,20 @@ interface TreeState<TData> {
   rows: TData[];
   /** `parentId -> cocuklar`. Yuklenmis dugumler burada. */
   childrenById: Record<string, TData[]>;
+  /**
+   * `parentId -> sonraki sayfanin imleci`.
+   *
+   * Anahtar YOKSA dal bitmis demek. `undefined` DEGERI ile anahtarin
+   * yoklugu ayni sey oldugu icin, biten dallarda anahtari siliyoruz.
+   */
+  nextCursorById: Record<string, string>;
 }
+
+/** Kok dugumun `childrenById` icindeki anahtari. */
+const ROOT_KEY = "\u0000root";
+
+const normalizeChildren = <TData>(result: LazyChildren<TData>) =>
+  Array.isArray(result) ? { rows: result, nextCursor: undefined } : result;
 
 /**
  * TEMBEL AGAC: cocuklar ACILDIGINDA yukleniyor (Faz 3).
@@ -63,6 +110,7 @@ interface TreeState<TData> {
  */
 export function useLazyTree<TData>({
   loadChildren,
+  moreRow,
   getRowId,
   hasChildren,
   onError,
@@ -70,6 +118,7 @@ export function useLazyTree<TData>({
   const [state, setState] = useState<TreeState<TData>>({
     rows: [],
     childrenById: {},
+    nextCursorById: {},
   });
   const [isLoadingRoot, setIsLoadingRoot] = useState(true);
 
@@ -104,13 +153,22 @@ export function useLazyTree<TData>({
   */
   const hasChildrenRef = useRef(hasChildren);
   hasChildrenRef.current = hasChildren;
+  const moreRowRef = useRef(moreRow);
+  moreRowRef.current = moreRow;
 
   /** Kok satirlari getiriyor. */
   const loadRoot = useCallback(async () => {
     setIsLoadingRoot(true);
     try {
-      const rows = await loadRef.current(null);
-      setState({ rows, childrenById: {} });
+      const { rows, nextCursor } = normalizeChildren(
+        await loadRef.current(null),
+      );
+      setState({
+        rows,
+        childrenById: {},
+        nextCursorById:
+          nextCursor === undefined ? {} : { [ROOT_KEY]: nextCursor },
+      });
     } catch (error) {
       errorRef.current?.(error, null);
     } finally {
@@ -135,7 +193,7 @@ export function useLazyTree<TData>({
    * belirtisi "bazen acilan dal bos kaliyor" olurdu ve yeniden uretmesi
    * neredeyse imkansiz.
    */
-  const loadNode = useCallback(async (row: TData) => {
+  const loadNode = useCallback(async (row: TData, cursor?: string) => {
     const id = idRef.current(row);
 
     setFailedIds((old) => {
@@ -147,11 +205,37 @@ export function useLazyTree<TData>({
     setLoadingIds((old) => new Set(old).add(id));
 
     try {
-      const children = await loadRef.current(row);
-      setState((old) => ({
-        ...old,
-        childrenById: { ...old.childrenById, [id]: children },
-      }));
+      const { rows: page, nextCursor } = normalizeChildren(
+        await loadRef.current(row, cursor),
+      );
+
+      setState((old) => {
+        /*
+          IMLECLI CAGRI EKLIYOR, imlecsiz DEGISTIRIYOR.
+
+          "Daha fazla" her zaman mevcut listenin DEVAMI; ustune yazsaydik
+          kullanici ikinci sayfayi acinca ilk sayfa kaybolurdu. Imlecsiz
+          cagri ise ilk acilis ya da `invalidate()` sonrasi tazeleme --
+          orada eskisini korumak bayat veri birakirdi.
+        */
+        const previous =
+          cursor === undefined ? [] : (old.childrenById[id] ?? []);
+        const nextCursors = { ...old.nextCursorById };
+
+        // Dal bittiyse ANAHTARI SILIYORUZ: "anahtar yok" ile "degeri
+        // undefined" ayni sey olsun, iki farkli "bitti" hali olmasin.
+        if (nextCursor === undefined) {
+          delete nextCursors[id];
+        } else {
+          nextCursors[id] = nextCursor;
+        }
+
+        return {
+          ...old,
+          childrenById: { ...old.childrenById, [id]: [...previous, ...page] },
+          nextCursorById: nextCursors,
+        };
+      });
     } catch (error) {
       /*
         HATA "SONSUZ YUKLENIYOR" DEGIL, ISARETLI BIR DURUM.
@@ -224,13 +308,14 @@ export function useLazyTree<TData>({
   /** Bir dugumun onbellegini atar; sonraki acilista yeniden yukleniyor. */
   const invalidate = useCallback((row?: TData) => {
     if (row === undefined) {
-      setState((old) => ({ ...old, childrenById: {} }));
+      setState((old) => ({ ...old, childrenById: {}, nextCursorById: {} }));
       return;
     }
     const id = idRef.current(row);
     setState((old) => {
       const { [id]: _dropped, ...rest } = old.childrenById;
-      return { ...old, childrenById: rest };
+      const { [id]: _cursor, ...cursors } = old.nextCursorById;
+      return { ...old, childrenById: rest, nextCursorById: cursors };
     });
   }, []);
 
@@ -241,8 +326,29 @@ export function useLazyTree<TData>({
    * onemli: bos dizi "cocugu yok" demek ve TanStack satiri yaprak sayar.
    */
   const getSubRows = useCallback(
-    (row: TData): TData[] | undefined => state.childrenById[idRef.current(row)],
-    [state.childrenById],
+    (row: TData): TData[] | undefined => {
+      const id = idRef.current(row);
+      const children = state.childrenById[id];
+      if (children === undefined) return undefined;
+
+      /*
+        "DAHA FAZLA" SATIRI DALIN SONUNA EKLENIYOR.
+
+        Neden bir SATIR, dalin altinda bir dugme degil? Cunku duz bir
+        tabloda "dalin alti" diye bir yer yok -- satirlar tek bir akista.
+        Sentinel satir hem dogru yerde duruyor hem sanallastirmaya dahil
+        oluyor hem de klavye gezinmesiyle ulasilabiliyor.
+
+        Fabrika verilmemisse eklenmiyor: tuketici kendi arayuzunu cizmek
+        isteyebilir (`nextCursorOf` disariya aciliyor).
+      */
+      const cursor = state.nextCursorById[id];
+      if (cursor === undefined || moreRowRef.current === undefined) {
+        return children;
+      }
+      return [...children, moreRowRef.current(row, { cursor })];
+    },
+    [state.childrenById, state.nextCursorById],
   );
 
   /**
@@ -306,6 +412,28 @@ export function useLazyTree<TData>({
     getRowCanExpand,
     ensureLoaded,
     retry,
+    /**
+     * Bir dalin SONRAKI sayfasini getirir.
+     *
+     * "Daha fazla" satirina basildiginda cagriliyor. Yuklemekte olan bir
+     * dal icin tekrar cagrilmasi ZARARSIZ: `loadingIds` kontrolu ikinci
+     * istegi engelliyor -- hizli iki tiklama ayni sayfayi iki kez
+     * eklemesin.
+     */
+    loadMore: useCallback(
+      (parent: TData) => {
+        const id = idRef.current(parent);
+        const cursor = state.nextCursorById[id];
+        if (cursor === undefined || loadingIds.has(id)) return;
+        void loadNode(parent, cursor);
+      },
+      [state.nextCursorById, loadingIds, loadNode],
+    ),
+    /** Bir dalda daha yuklenecek sayfa var mi? (imlec ya da `undefined`) */
+    nextCursorOf: useCallback(
+      (parent: TData) => state.nextCursorById[idRef.current(parent)],
+      [state.nextCursorById],
+    ),
     invalidate,
     reloadRoot: loadRoot,
     isLoadingNode: useCallback(

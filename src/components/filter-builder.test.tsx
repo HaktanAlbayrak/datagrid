@@ -8,7 +8,7 @@ import {
   type FilterField,
   type FilterGroup,
 } from "../core/filter-tree";
-import { GridFilterBuilder } from "./grid-filter-builder";
+import { describeFilterTree, GridFilterBuilder } from "./grid-filter-builder";
 
 const FIELDS: FilterField[] = [
   { name: "title", label: "Başlık", type: "text" },
@@ -204,6 +204,35 @@ describe("filtre kurucu", () => {
       })[0] as HTMLElement,
     );
     expect(tree.get()?.children).toHaveLength(1);
+  });
+
+  test("özet cümlesi HAM DEĞERİ değil, kullanıcının gördüğü ETİKETİ yazar", () => {
+    /*
+      OLCULEN HATA: tarayicida ozet "Tip şunlardan biri task" yaziyordu;
+      kullanicinin rozetlerde ve hucrelerde gordugu ad ise "Görev".
+
+      Ozetin varlik sebebi kullanicinin kurdugu ifadeyi DOGRULAMASI --
+      ic ice kutularda "ne sordugumu" okumak zor. Okudugu ad ekranda
+      hicbir yerde gecmiyorsa o is yapilmiyor demektir.
+    */
+    const tree: FilterGroup = {
+      kind: "group",
+      id: "g",
+      combinator: "and",
+      children: [
+        {
+          kind: "condition",
+          id: "c1",
+          field: "priority",
+          operator: "in",
+          value: ["high", "low"],
+        },
+      ],
+    };
+
+    const cumle = describeFilterTree(tree, FIELDS);
+    expect(cumle).toBe("Öncelik şunlardan biri Yüksek – Düşük");
+    expect(cumle).not.toContain("high");
   });
 
   test("kök grubun KALDIR düğmesi YOK", async () => {

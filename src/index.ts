@@ -98,6 +98,7 @@ export {
   useGridVirtualizer,
 } from "./core/use-grid-virtualizer";
 export {
+  type LazyChildren,
   type UseLazyTreeOptions,
   useLazyTree,
 } from "./core/use-lazy-tree";

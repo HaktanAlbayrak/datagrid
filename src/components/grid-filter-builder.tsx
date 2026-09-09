@@ -504,9 +504,32 @@ export function describeFilterTree(
 
     if (VALUELESS_OPERATORS.has(node.operator)) return `${label} ${operator}`;
 
+    /*
+      DEGERLER DE ETIKETE CEVRILIYOR -- ham enum DEGIL.
+
+      OLCULEN HATA: tarayicida ozet cumlesi "Tip şunlardan biri task"
+      yaziyordu; kullanicinin rozetlerde ve hucrelerde gordugu ad ise
+      "Görev". Ozetin varlik sebebi kullanicinin kurdugu ifadeyi
+      DOGRULAMASI; okudugu ad ekranda hicbir yerde gecmiyorsa dogrulama
+      isini yapmiyor demektir.
+
+      Esleme icin yeni bir alan eklemedik: `field.options` zaten deger ->
+      etiket eslemesini tasiyor (rozetler onu kullaniyor). Grup basliklari
+      da ayni kaynaktan besleniyor.
+    */
+    const describeValue = (part: unknown) => {
+      const option = field?.options?.find((entry) => entry.value === part);
+      return option === undefined
+        ? String(part)
+        : (option.label ?? option.value);
+    };
+
     const value = Array.isArray(node.value)
-      ? node.value.filter((part) => part !== "").join(" – ")
-      : String(node.value ?? "");
+      ? node.value
+          .filter((part) => part !== "")
+          .map(describeValue)
+          .join(" – ")
+      : describeValue(node.value ?? "");
     return `${label} ${operator} ${value}`;
   }
 

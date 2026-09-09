@@ -1,0 +1,60 @@
+{
+  "name": "@tudos/datagrid",
+  "version": "0.1.0",
+  "description": "DevExtreme sinifinda, TanStack Table v9 + shadcn/Tailwind uzerine kurulu basliksiz DataGrid ve TreeGrid.",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup && node ./scripts/postbuild.mjs",
+    "dev": "tsup --watch",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ci": "biome ci . && tsc --noEmit && vitest run && npm run build",
+    "pack:local": "npm run build && npm pack --pack-destination .."
+  },
+  "peerDependencies": {
+    "@base-ui/react": ">=1.7.0",
+    "@tanstack/react-table": ">=9.2.0",
+    "react": ">=19.0.0",
+    "react-dom": ">=19.0.0"
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "^3.13.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.37.0",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@base-ui/react": "^1.7.0",
+    "@biomejs/biome": "2.4.2",
+    "@tanstack/react-table": "^9.2.4",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "jsdom": "^30.0.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tsup": "^8.5.0",
+    "typescript": "^5",
+    "vitest": "^5.0.0"
+  }
+}
